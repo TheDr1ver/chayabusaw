@@ -1,0 +1,17 @@
+# evtx-analyzer/docker-compose.yaml
+version: '3.8'
+
+services:
+  chayabusaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chayabusaw-app
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persistently store the analysis reports on the host
+      - ./analysis_results:/app/results
+      # Persistently store the parsed JSONL files on the host
+      - ./evtx_jsonl_output:/app/jsonl_output
+    restart: unless-stopped

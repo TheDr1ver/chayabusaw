@@ -1,55 +1,48 @@
-# evtx-analyzer/Dockerfile
+# chayabusaw/Dockerfile
 
-# Use a slim Python base image
 FROM python:3.12-slim
 
-# Set environment variables for non-interactive installs
 ENV PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive
+    DEBIAN_FRONTEND=noninteractive \
+    HAYABUSA_VERSION=3.3.0
 
-# Install system dependencies: wget for downloading and unzip for extracting archives
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget unzip && \
-    rm -rf /var/lib/apt/lists/*
+# Install system deps for building hayabusa
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      wget unzip git build-essential curl ca-certificates libssl-dev pkg-config \
+ && rm -rf /var/lib/apt/lists/*
 
-# --- Install Hayabusa ---
-# Find the latest release URL from GitHub API
-# Using a fixed version for reproducibility. Update the version as needed.
-ARG HAYABUSA_VERSION=2.12.0
-ARG HAYABUSA_URL=https://github.com/Yamato-Security/hayabusa/releases/download/v${HAYABUSA_VERSION}/hayabusa-v${HAYABUSA_VERSION}-linux.zip
-RUN wget -q ${HAYABUSA_URL} -O hayabusa.zip && \
-    unzip hayabusa.zip && \
-    # The binary is inside a directory, find it and move it to the PATH
-    mv hayabusa-v*/hayabusa /usr/local/bin/hayabusa && \
-    chmod +x /usr/local/bin/hayabusa && \
-    rm -rf hayabusa.zip hayabusa-v*
+# Bring in rustup and set up a current Rust toolchain
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path \
+ && rustup toolchain install stable \
+ && rustup default stable
 
-# --- Install Chainsaw ---
-# Using a fixed version for reproducibility. Update the version as needed.
-ARG CHAINSAW_VERSION=2.12.2
-ARG CHAINSAW_URL=https://github.com/WithSecureLabs/chainsaw/releases/download/v${CHAINSAW_VERSION}/chainsaw_x86_64-unknown-linux-gnu.tar.gz
-RUN wget -q ${CHAINSAW_URL} -O chainsaw.tar.gz && \
-    tar -xzf chainsaw.tar.gz && \
-    mv chainsaw /usr/local/bin/chainsaw && \
-    chmod +x /usr/local/bin/chainsaw && \
-    rm -rf chainsaw.tar.gz
+# Clone & build hayabusa from source
+ARG HAYABUSA_VERSION=3.3.0
+RUN git clone --depth 1 --branch v${HAYABUSA_VERSION} \
+      https://github.com/Yamato-Security/hayabusa.git /build/hayabusa \
+ && cd /build/hayabusa \
+ && cargo build --release \
+ && mv target/release/hayabusa /usr/local/bin/ \
+ && chmod +x /usr/local/bin/hayabusa \
+ && rm -rf /build/hayabusa
 
-# Verify installations
-RUN chainsaw --version && hayabusa --version
+# Install Chainsaw (as before)
+COPY ./chainsaw /chainsaw
+RUN mv /chainsaw/chainsaw /usr/local/bin/chainsaw \
+ && chmod +x /usr/local/bin/chainsaw
 
-# Set the working directory in the container
+# Verify both tools
+RUN hayabusa help && chainsaw --version
+
 WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-# Copy the requirements file and install Python dependencies
-COPY ./requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt
-
-# Copy the application code into the container
 COPY ./app /app
-
-# Expose the port the app runs on
 EXPOSE 8000
-
-# Command to run the application using uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn","main:app","--host","0.0.0.0","--port","8000"]
