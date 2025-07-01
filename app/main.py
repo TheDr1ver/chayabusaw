@@ -74,6 +74,11 @@ def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
                             json_subline.update(firstline)  # add the event ID to JSON subline
 
                     # Loop through each key, value pair of the EventData section of the evtx logs
+                    # Check if EventData exists first
+                    if "EventData" not in data_dict["Event"]:
+                        logger.warning(f"No EventData in record {json_subline.get('EventRecordID', 'unknown')}")
+                        continue
+
                     for event_data_key, event_data_value in data_dict["Event"]["EventData"].items():
                         for values in event_data_value:
 
@@ -205,6 +210,7 @@ async def show_results(request: Request):
     # Use the JSONL files as the source of truth for what was processed
     for jsonl_file in sorted(JSONL_DIR.glob("*.jsonl")):
         source_stem = jsonl_file.stem
+
         results_by_source[source_stem] = {
             "chainsaw": None,
             "hayabusa_html": None, # Explicitly for HTML report
@@ -220,15 +226,15 @@ async def show_results(request: Request):
         # Find corresponding Hayabusa report (the main HTML file)
         # Now explicitly store HTML and JSONL separately
         hayabusa_dir = RESULTS_DIR / f"{source_stem}_hayabusa_report" # This is the HTML output directory
+
         if hayabusa_dir.is_dir():
             # Hayabusa reports can have different names, find the first .html
             try:
                 html_report = next(hayabusa_dir.glob("*.html"))
                 # The link needs to be relative to the static mount point
-                relative_path = html_report.relative_to(RESULTS_DIR)
-                results_by_source[source_stem]["hayabusa_html"] = f"/static_results/{relative_path}"
+                results_by_source[source_stem]["hayabusa_html"] = f"/static_results/{html_report.relative_to(RESULTS_DIR)}"
             except StopIteration:
-                print(f"No HTML report found in {hayabusa_dir}")
+                logger.error(f"No HTML report found in {hayabusa_dir}")
 
         # Find corresponding Hayabusa JSONL report
         hayabusa_jsonl = RESULTS_DIR / f"{source_stem}_hayabusa_report.jsonl"
