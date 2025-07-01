@@ -93,7 +93,7 @@ def run_analysis(evtx_path: Path):
     try:
         # Command: chainsaw hunt /path/to/file.evtx --json -o /path/to/output.json
         subprocess.run(
-            ["chainsaw", "hunt", str(evtx_path), "--json", "-o", str(chainsaw_output_file)],
+            ["chainsaw", "hunt", str(evtx_path), "-s", "/sigma", "--mapping", "/chainsaw/mappings/sigma-event-logs-all.yml", "-r", "/chainsaw-rules", "--json", "-o", str(chainsaw_output_file)],
             check=True, capture_output=True, text=True
         )
         print(f"Chainsaw analysis complete. Report at: {chainsaw_output_file}")

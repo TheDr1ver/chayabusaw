@@ -14,4 +14,8 @@ services:
       - ./analysis_results:/app/results
       # Persistently store the parsed JSONL files on the host
       - ./evtx_jsonl_output:/app/jsonl_output
+      # Load in custom Sigma rules
+      - ./custom-sigma-rules:/opt/sigma/custom/rules
+      # Load in custom chainsaw rules
+      - ./custom-chainsaw-rules:/chainsaw-rules
     restart: unless-stopped
