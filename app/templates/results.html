@@ -1,0 +1,57 @@
+<!-- evtx-analyzer/app/templates/results.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analysis Results</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 40px auto; padding: 20px; background-color: #f4f4f4; }
+        h1, h2 { color: #0056b3; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .result-group { border-left: 3px solid #007bff; padding-left: 15px; margin-bottom: 30px; }
+        ul { list-style-type: none; padding-left: 0; }
+        li { margin-bottom: 10px; }
+        a { color: #007bff; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .back-link { display: inline-block; margin-top: 30px; background-color: #6c757d; color: white; padding: 10px 15px; border-radius: 4px; }
+        .back-link:hover { background-color: #5a6268; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Analysis Results</h1>
+
+        {% if not results %}
+            <p>No results found. The analysis may have failed or no reports were generated.</p>
+        {% endif %}
+
+        {% for source_name, reports in results.items() %}
+            <div class="result-group">
+                <h2>{{ source_name }}.evtx</h2>
+                <ul>
+                    {% if reports.chainsaw %}
+                        <li><strong>Chainsaw:</strong> <a href="{{ reports.chainsaw }}" target="_blank">View JSON Report</a></li>
+                    {% else %}
+                        <li><strong>Chainsaw:</strong> Report not found.</li>
+                    {% endif %}
+
+                    {% if reports.hayabusa %}
+                        <li><strong>Hayabusa:</strong> <a href="{{ reports.hayabusa }}" target="_blank">View HTML Report</a></li>
+                    {% else %}
+                        <li><strong>Hayabusa:</strong> Report not found.</li>
+                    {% endif %}
+
+                    {% if reports.jsonl %}
+                        <li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file is stored on the server at <code>{{ reports.jsonl }}</code></li>
+                    {% else %}
+                        <li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file not found.</li>
+                    {% endif %}
+                </ul>
+            </div>
+        {% endfor %}
+
+        <a href="/" class="back-link">Analyze Another File</a>
+    </div>
+</body>
+</html>
