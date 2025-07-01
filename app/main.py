@@ -110,7 +110,7 @@ def run_analysis(evtx_path: Path):
 
     # 1. Run Chainsaw
     chainsaw_output_file = RESULTS_DIR / f"{file_stem}_chainsaw_report.json"
-    print(f"Running Chainsaw on {evtx_path.name}...")
+    logger.info(f"Running Chainsaw on {evtx_path.name}...")
     try:
         # Command: chainsaw hunt /path/to/file.evtx --json -o /path/to/output.json
         subprocess.run(
@@ -132,11 +132,16 @@ def run_analysis(evtx_path: Path):
     hayabusa_html_output_dir.mkdir(exist_ok=True) # Ensure directory exists
     hayabusa_html_output_file = hayabusa_html_output_dir / "index.html"
 
-    print(f"Running Hayabusa on {evtx_path.name}...")
+    logger.info(f"Running Hayabusa on {evtx_path.name}...")
     try:
-        # Command: hayabusa json-timeline -f /path/to/file.evtx -L /path/to/output.jsonl -H /path/to/html_output_directory
+        # Command: hayabusa json-timeline -f /path/to/file.evtx -L -o /path/to/output.jsonl -H /path/to/html_output_directory -w
+        # -f specifies an evtx file as opposed to a directory (directory would be -d)
+        # -L specifies JSONL output
+        # -o tells it where to save the JSONL output
+        # -H tells it where to save the HTML output
+        # -w tells it to skip the CLI wizard so this stuff actually gets output and doesn't get hung up in the terminal
         subprocess.run(
-            ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", "-o", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_file)],
+            ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", "-o", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_file), "-w"],
             check=True, capture_output=True, text=True
         )
         logger.info(f"Hayabusa JSONL report at: {hayabusa_jsonl_output}")
