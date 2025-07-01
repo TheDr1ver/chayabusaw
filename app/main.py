@@ -140,14 +140,33 @@ def run_analysis(evtx_path: Path):
         # -o tells it where to save the JSONL output
         # -H tells it where to save the HTML output
         # -w tells it to skip the CLI wizard so this stuff actually gets output and doesn't get hung up in the terminal
-        subprocess.run(
+        result = subprocess.run(
             ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", "-o", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_file), "-w"],
             check=True, capture_output=True, text=True
         )
+        # Log the subprocess output
+        if result.stdout:
+            logger.info(f"Hayabusa stdout: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"Hayabusa stderr: {result.stderr}")
+        
         logger.info(f"Hayabusa JSONL report at: {hayabusa_jsonl_output}")
         logger.info(f"Hayabusa HTML report directory: {hayabusa_html_output_dir}")
+        
+        # Check if the expected output files were actually created
+        if not hayabusa_jsonl_output.exists():
+            logger.error(f"Expected JSONL output file not created: {hayabusa_jsonl_output}")
+        if not hayabusa_html_output_file.exists():
+            logger.error(f"Expected HTML output file not created: {hayabusa_html_output_file}")
+            
     except subprocess.CalledProcessError as e:
-        logger.error(f"Hayabusa failed for {evtx_path.name}: {e.stderr}")
+        logger.error(f"Hayabusa failed for {evtx_path.name}")
+        logger.error(f"Return code: {e.returncode}")
+        logger.error(f"Command: {e.cmd}")
+        if e.stdout:
+            logger.error(f"Stdout: {e.stdout}")
+        if e.stderr:
+            logger.error(f"Stderr: {e.stderr}")
     except FileNotFoundError:
         logger.error("Error: 'hayabusa' command not found. Is it in the system's PATH?")
 
