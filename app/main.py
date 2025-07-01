@@ -141,7 +141,7 @@ def run_analysis(evtx_path: Path):
         # -H tells it where to save the HTML output
         # -w tells it to skip the CLI wizard so this stuff actually gets output and doesn't get hung up in the terminal
         result = subprocess.run(
-            ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", "-o", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_file), "-w"],
+            ["/opt/hayabusa/hayabusa", "json-timeline","-f", str(evtx_path), "-L", "-o", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_file), "-w"],
             check=True, capture_output=True, text=True
         )
         # Log the subprocess output
