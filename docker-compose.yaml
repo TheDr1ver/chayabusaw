@@ -18,4 +18,6 @@ services:
       - ./custom-sigma-rules:/opt/sigma/custom/rules
       # Load in custom chainsaw rules
       - ./custom-chainsaw-rules:/chainsaw-rules
+      # Persistently store application logs on the host
+      - ./logs:/logs
     restart: unless-stopped

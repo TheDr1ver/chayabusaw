@@ -42,6 +42,11 @@
                         <li><strong>Hayabusa:</strong> Report not found.</li>
                     {% endif %}
 
+                    {% if reports.hayabusa_jsonl %}
+                        <li><strong>Hayabusa JSONL:</strong> <a href="{{ reports.hayabusa_jsonl }}" target="_blank">View JSONL Report</a></li>
+                    {% else %}
+                        <li><strong>Hayabusa JSONL:</strong> Report not found.</li>
+                    {% endif %}
                     {% if reports.jsonl %}
                         <li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file is stored on the server at <code>{{ reports.jsonl }}</code></li>
                     {% else %}
