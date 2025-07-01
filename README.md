@@ -63,6 +63,7 @@ The entire application is deployed using a single `docker-compose.yaml` file, de
 5.  **Access Persistent Data**
     - The analysis reports (JSON from Chainsaw, HTML from Hayabusa) will be available in the `analysis_results/` directory on your host machine.
     - The raw event logs parsed into JSONL format will be stored in the `evtx_jsonl_output/` directory on your host machine. These are not directly downloadable from the UI but are persistently stored for further offline analysis.
+    - Custom rules can be loaded into the container by mounting a volume at `/custom-sigma-rules` and `/custom-chainsaw-rules`. These will be merged into the default rules in the container.
 
 ## Project Structure
 
@@ -74,7 +75,6 @@ evtx-analyzer/
 │   │   ├── index.html      # Upload form template
 │   │   └── results.html    # Results display template
 ├── chainsaw                # Contains chainsaw binary and rules
-├── hayabusa                # Contains hayabusa binary and rules
 ├── Dockerfile              # Defines the application container image
 ├── docker-compose.yaml     # Orchestrates the service deployment
 ├── README.md               # This file

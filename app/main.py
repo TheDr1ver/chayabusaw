@@ -104,12 +104,12 @@ def run_analysis(evtx_path: Path):
 
 
     # 2. Run Hayabusa
-    hayabusa_output_dir = RESULTS_DIR / f"{file_stem}_hayabusa_report"
+    hayabusa_output_dir = RESULTS_DIR / f"{file_stem}_hayabusa_report.jsonl"
     print(f"Running Hayabusa on {evtx_path.name}...")
     try:
-        # Command: hayabusa -f /path/to/file.evtx -o /path/to/output_directory
+        # Command: hayabusa json-timeline -f /path/to/file.evtx -o /path/to/output_directory
         subprocess.run(
-            ["hayabusa", "-f", str(evtx_path), "-o", str(hayabusa_output_dir)],
+            ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", str(hayabusa_output_dir)],
             check=True, capture_output=True, text=True
         )
         print(f"Hayabusa analysis complete. Report directory: {hayabusa_output_dir}")
