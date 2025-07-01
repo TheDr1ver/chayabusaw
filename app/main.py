@@ -3,6 +3,7 @@ import json
 import xmltodict
 import os
 import shutil
+import logging
 import subprocess
 import uuid
 import zipfile
@@ -20,12 +21,26 @@ BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 RESULTS_DIR = BASE_DIR / "results"
 JSONL_DIR = BASE_DIR / "jsonl_output"
+LOG_DIR = Path("/logs") # Use absolute path for logs
 
 # Create directories if they don't exist
 UPLOAD_DIR.mkdir(exist_ok=True)
 RESULTS_DIR.mkdir(exist_ok=True)
 JSONL_DIR.mkdir(exist_ok=True)
+LOG_DIR.mkdir(exist_ok=True)
 
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_DIR / "app.log"),
+        logging.StreamHandler() # Also log to console
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Create directories if they don't exist
 # --- FastAPI App Initialization ---
 app = FastAPI(title="EVTX Analysis Pipeline")
 
@@ -39,6 +54,7 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
     """Parses an EVTX file to a JSONL file, one JSON object per line."""
     print(f"Parsing {evtx_path} to {jsonl_output_path}...")
+    logger.info(f"Parsing {evtx_path} to {jsonl_output_path}...")
     try:
         with jsonl_output_path.open("w") as f_out:
             with evtx.Evtx(str(evtx_path)) as log:
@@ -58,6 +74,11 @@ def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
                             json_subline.update(firstline)  # add the event ID to JSON subline
 
                     # Loop through each key, value pair of the EventData section of the evtx logs
+                    # Check if EventData exists first
+                    if "EventData" not in data_dict["Event"]:
+                        logger.warning(f"No EventData in record {json_subline.get('EventRecordID', 'unknown')}")
+                        continue
+
                     for event_data_key, event_data_value in data_dict["Event"]["EventData"].items():
                         for values in event_data_value:
 
@@ -77,46 +98,77 @@ def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
                     else:
                         final_json.append(json_subline)
                     json.dump(final_json, f_out)
-        print(f"Successfully parsed to {jsonl_output_path}")
+        logger.info(f"Successfully parsed to {jsonl_output_path}")
     except Exception as e:
-        print(f"Error parsing {evtx_path}: {e}")
+        logger.error(f"Error parsing {evtx_path}: {e}")
 
 def run_analysis(evtx_path: Path):
     """Runs Chainsaw, Hayabusa, and EVTX-to-JSONL parsing on a single file."""
 
     file_stem = evtx_path.stem  # e.g., "Security" from "Security.evtx"
-    print(f"--- Starting analysis for {evtx_path.name} ---")
+    logger.info(f"--- Starting analysis for {evtx_path.name} ---")
 
     # 1. Run Chainsaw
     chainsaw_output_file = RESULTS_DIR / f"{file_stem}_chainsaw_report.json"
-    print(f"Running Chainsaw on {evtx_path.name}...")
+    logger.info(f"Running Chainsaw on {evtx_path.name}...")
     try:
         # Command: chainsaw hunt /path/to/file.evtx --json -o /path/to/output.json
         subprocess.run(
             ["chainsaw", "hunt", str(evtx_path), "-s", "/sigma", "--mapping", "/chainsaw/mappings/sigma-event-logs-all.yml", "-r", "/chainsaw-rules", "--json", "-o", str(chainsaw_output_file)],
             check=True, capture_output=True, text=True
         )
-        print(f"Chainsaw analysis complete. Report at: {chainsaw_output_file}")
+        logger.info(f"Chainsaw analysis complete. Report at: {chainsaw_output_file}")
     except subprocess.CalledProcessError as e:
-        print(f"Chainsaw failed for {evtx_path.name}: {e.stderr}")
+        logger.error(f"Chainsaw failed for {evtx_path.name}: {e.stderr}")
     except FileNotFoundError:
-        print("Error: 'chainsaw' command not found. Is it in the system's PATH?")
+        logger.error("Error: 'chainsaw' command not found. Is it in the system's PATH?")
 
 
     # 2. Run Hayabusa
-    hayabusa_output_dir = RESULTS_DIR / f"{file_stem}_hayabusa_report.jsonl"
-    print(f"Running Hayabusa on {evtx_path.name}...")
+    # Specify output path for the JSONL report
+    hayabusa_jsonl_output = RESULTS_DIR / f"{file_stem}_hayabusa_report.jsonl"
+    # Specify output directory for the HTML report
+    hayabusa_html_output_dir = RESULTS_DIR / f"{file_stem}_hayabusa_report"
+    hayabusa_html_output_dir.mkdir(exist_ok=True) # Ensure directory exists
+    hayabusa_html_output_file = hayabusa_html_output_dir / "index.html"
+
+    logger.info(f"Running Hayabusa on {evtx_path.name}...")
     try:
-        # Command: hayabusa json-timeline -f /path/to/file.evtx -o /path/to/output_directory
-        subprocess.run(
-            ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", str(hayabusa_output_dir)],
+        # Command: hayabusa json-timeline -f /path/to/file.evtx -L -o /path/to/output.jsonl -H /path/to/html_output_directory -w
+        # -f specifies an evtx file as opposed to a directory (directory would be -d)
+        # -L specifies JSONL output
+        # -o tells it where to save the JSONL output
+        # -H tells it where to save the HTML output
+        # -w tells it to skip the CLI wizard so this stuff actually gets output and doesn't get hung up in the terminal
+        result = subprocess.run(
+            ["/opt/hayabusa/hayabusa", "json-timeline","-f", str(evtx_path), "-L", "-o", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_file), "-w"],
             check=True, capture_output=True, text=True
         )
-        print(f"Hayabusa analysis complete. Report directory: {hayabusa_output_dir}")
+        # Log the subprocess output
+        if result.stdout:
+            logger.info(f"Hayabusa stdout: {result.stdout}")
+        if result.stderr:
+            logger.warning(f"Hayabusa stderr: {result.stderr}")
+        
+        logger.info(f"Hayabusa JSONL report at: {hayabusa_jsonl_output}")
+        logger.info(f"Hayabusa HTML report directory: {hayabusa_html_output_dir}")
+        
+        # Check if the expected output files were actually created
+        if not hayabusa_jsonl_output.exists():
+            logger.error(f"Expected JSONL output file not created: {hayabusa_jsonl_output}")
+        if not hayabusa_html_output_file.exists():
+            logger.error(f"Expected HTML output file not created: {hayabusa_html_output_file}")
+            
     except subprocess.CalledProcessError as e:
-        print(f"Hayabusa failed for {evtx_path.name}: {e.stderr}")
+        logger.error(f"Hayabusa failed for {evtx_path.name}")
+        logger.error(f"Return code: {e.returncode}")
+        logger.error(f"Command: {e.cmd}")
+        if e.stdout:
+            logger.error(f"Stdout: {e.stdout}")
+        if e.stderr:
+            logger.error(f"Stderr: {e.stderr}")
     except FileNotFoundError:
-        print("Error: 'hayabusa' command not found. Is it in the system's PATH?")
+        logger.error("Error: 'hayabusa' command not found. Is it in the system's PATH?")
 
     # 3. Parse EVTX to JSONL
     jsonl_output_file = JSONL_DIR / f"{file_stem}.jsonl"
@@ -148,7 +200,7 @@ async def handle_file_upload(file: UploadFile = File(...)):
 
         # Handle .zip archives
         if upload_path.suffix.lower() == ".zip":
-            print(f"Extracting zip archive: {upload_path}")
+            logger.info(f"Extracting zip archive: {upload_path}")
             with zipfile.ZipFile(upload_path, 'r') as zip_ref:
                 zip_ref.extractall(session_dir)
             upload_path.unlink() # Delete the zip file after extraction
@@ -158,7 +210,7 @@ async def handle_file_upload(file: UploadFile = File(...)):
         if not evtx_files:
             # Handle case with no EVTX files (maybe bad zip or wrong file type)
             # For simplicity, we just redirect. A real app might show an error.
-            print("No .evtx files found in the upload.")
+            logger.warning("No .evtx files found in the upload.")
         else:
             for evtx_file in evtx_files:
                 run_analysis(evtx_file)
@@ -182,9 +234,11 @@ async def show_results(request: Request):
     # Use the JSONL files as the source of truth for what was processed
     for jsonl_file in sorted(JSONL_DIR.glob("*.jsonl")):
         source_stem = jsonl_file.stem
+
         results_by_source[source_stem] = {
             "chainsaw": None,
-            "hayabusa": None,
+            "hayabusa_html": None, # Explicitly for HTML report
+            "hayabusa_jsonl": None, # Explicitly for JSONL report
             "jsonl": str(jsonl_file) # Store the server path for display
         }
 
@@ -194,17 +248,22 @@ async def show_results(request: Request):
             results_by_source[source_stem]["chainsaw"] = f"/static_results/{chainsaw_report.name}"
 
         # Find corresponding Hayabusa report (the main HTML file)
-        hayabusa_dir = RESULTS_DIR / f"{source_stem}_hayabusa_report"
+        # Now explicitly store HTML and JSONL separately
+        hayabusa_dir = RESULTS_DIR / f"{source_stem}_hayabusa_report" # This is the HTML output directory
+
         if hayabusa_dir.is_dir():
             # Hayabusa reports can have different names, find the first .html
             try:
                 html_report = next(hayabusa_dir.glob("*.html"))
                 # The link needs to be relative to the static mount point
-                relative_path = html_report.relative_to(RESULTS_DIR)
-                results_by_source[source_stem]["hayabusa"] = f"/static_results/{relative_path}"
+                results_by_source[source_stem]["hayabusa_html"] = f"/static_results/{html_report.relative_to(RESULTS_DIR)}"
             except StopIteration:
-                print(f"No HTML report found in {hayabusa_dir}")
+                logger.error(f"No HTML report found in {hayabusa_dir}")
 
+        # Find corresponding Hayabusa JSONL report
+        hayabusa_jsonl = RESULTS_DIR / f"{source_stem}_hayabusa_report.jsonl"
+        if hayabusa_jsonl.exists():
+            results_by_source[source_stem]["hayabusa_jsonl"] = f"/static_results/{hayabusa_jsonl.name}"
     return templates.TemplateResponse("results.html", {
         "request": request,
         "results": results_by_source

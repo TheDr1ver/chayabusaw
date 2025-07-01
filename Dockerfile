@@ -22,13 +22,15 @@ RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path \
 
 # Clone & build hayabusa from source
 ARG HAYABUSA_VERSION=3.3.0
-RUN git clone --depth 1 --branch v${HAYABUSA_VERSION} \
-      https://github.com/Yamato-Security/hayabusa.git /build/hayabusa \
- && cd /build/hayabusa \
+RUN git clone --branch v${HAYABUSA_VERSION} \
+      https://github.com/Yamato-Security/hayabusa.git /opt/hayabusa \
+ && cd /opt/hayabusa \
+ && git submodule update --init --recursive \
  && cargo build --release \
- && mv target/release/hayabusa /usr/local/bin/ \
- && chmod +x /usr/local/bin/hayabusa \
- && rm -rf /build/hayabusa
+ && mv target/release/hayabusa /opt/hayabusa/ \
+ && chmod +x /opt/hayabusa/hayabusa \
+ && ln -s /opt/hayabusa/hayabusa /usr/local/bin/hayabusa \
+ && rm -rf /opt/hayabusa/target /opt/hayabusa/.git
 
 # Install Chainsaw (as before)
 COPY ./chainsaw /chainsaw
