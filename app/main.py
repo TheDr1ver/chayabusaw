@@ -125,12 +125,13 @@ def run_analysis(evtx_path: Path):
     # Specify output directory for the HTML report
     hayabusa_html_output_dir = RESULTS_DIR / f"{file_stem}_hayabusa_report"
     hayabusa_html_output_dir.mkdir(exist_ok=True) # Ensure directory exists
+    hayabusa_html_output_file = hayabusa_html_output_dir / "index.html"
 
     print(f"Running Hayabusa on {evtx_path.name}...")
     try:
         # Command: hayabusa json-timeline -f /path/to/file.evtx -L /path/to/output.jsonl -H /path/to/html_output_directory
         subprocess.run(
-            ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_dir)],
+            ["hayabusa", "json-timeline","-f", str(evtx_path), "-L", "-o", str(hayabusa_jsonl_output), "-H", str(hayabusa_html_output_file)],
             check=True, capture_output=True, text=True
         )
         logger.info(f"Hayabusa JSONL report at: {hayabusa_jsonl_output}")
