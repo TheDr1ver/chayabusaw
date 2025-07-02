@@ -1,5 +1,4 @@
-# evtx-analyzer/docker-compose.yaml
-version: '3.8'
+# chayabusaw/docker-compose.yaml
 
 services:
   chayabusaw:
