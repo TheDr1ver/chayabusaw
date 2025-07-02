@@ -10,8 +10,8 @@ import zipfile
 from pathlib import Path
 
 import Evtx.Evtx as evtx
-from fastapi import FastAPI, File, UploadFile, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, File, UploadFile, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -180,7 +180,7 @@ def run_analysis(evtx_path: Path):
     # 4. Copy all .json and .jsonl files to the JSONL directory
     dest_dir = JSONL_DIR / f"{file_stem}"
     dest_dir.mkdir(exist_ok=True)
-    
+
     src_dir = RESULTS_DIR / f"{file_stem}"
     for pattern in ("*.json", "*.jsonl"):
         for src_file in src_dir.glob(pattern):
@@ -202,6 +202,9 @@ async def handle_file_upload(file: UploadFile = File(...)):
     session_id = str(uuid.uuid4())
     session_dir:Path = UPLOAD_DIR / session_id
     session_dir.mkdir()
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
 
     upload_path = session_dir / file.filename
 
@@ -309,3 +312,43 @@ async def show_results(request: Request):
         "results.html",
         {"request": request, "results": results_by_source}
     )
+
+@app.delete("/delete-results/{file_stem}")
+async def delete_results(file_stem: str):
+    """Deletes the results directory and all associated files for a specific file stem."""
+
+    try:
+        # Construct the path to the results directory for this file stem
+        results_dir_path = RESULTS_DIR / file_stem
+
+        # Check if the directory exists
+        if not results_dir_path.exists():
+            logger.warning(f"Results directory not found: {results_dir_path}")
+            raise HTTPException(status_code=404, detail=f"Results directory for '{file_stem}' not found")
+
+        if not results_dir_path.is_dir():
+            logger.warning(f"Path exists but is not a directory: {results_dir_path}")
+            raise HTTPException(status_code=400, detail=f"'{file_stem}' is not a valid results directory")
+
+        # Delete the entire directory and its contents
+        shutil.rmtree(results_dir_path)
+        logger.info(f"Successfully deleted results directory: {results_dir_path}")
+
+        # Also clean up the corresponding JSONL directory if it exists
+        jsonl_dir_path = JSONL_DIR / file_stem
+        if jsonl_dir_path.exists() and jsonl_dir_path.is_dir():
+            shutil.rmtree(jsonl_dir_path)
+            logger.info(f"Successfully deleted JSONL directory: {jsonl_dir_path}")
+
+        return JSONResponse(
+            status_code=200,
+            content={"message": f"Successfully deleted results for '{file_stem}'"}
+        )
+
+    except PermissionError as e:
+        logger.error(f"Permission denied when deleting {file_stem}: {e}")
+        raise HTTPException(status_code=403, detail="Permission denied: Unable to delete results directory")
+
+    except Exception as e:
+        logger.error(f"Error deleting results for {file_stem}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
