@@ -60,18 +60,17 @@ def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
     try:
         with jsonl_output_path.open("w") as f_out:
             with evtx.Evtx(str(evtx_path)) as log:
-                final_json = []
                 for record in log.records():
-                    # // f_out.write(record['data'] + '\n')
-                    #. Convert the record to a dict for ease of parsing
+                    # Convert the record to a dict for ease of parsing
                     data_dict = xmltodict.parse(record.xml())
+
+                    # Initialize JSON object for this record
+                    json_subline = {}
 
                     # Loop through each key,value pair of the System section of the evtx logs and extract the EventRecordID
                     for event_system_key, event_system_value in data_dict["Event"]["System"].items():
                         if event_system_key == "EventRecordID":
-                            json_subline = {}
                             firstline = {event_system_key: event_system_value}
-
                             # Add information to the JSON object for this specific log
                             json_subline.update(firstline)  # add the event ID to JSON subline
 
@@ -79,27 +78,29 @@ def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
                     # Check if EventData exists first
                     if "EventData" not in data_dict["Event"]:
                         logger.warning(f"No EventData in record {json_subline.get('EventRecordID', 'unknown')}")
+                        # Write the record even if it has no EventData, as it may still be useful
+                        f_out.write(json.dumps(json_subline) + '\n')
                         continue
 
                     for event_data_key, event_data_value in data_dict["Event"]["EventData"].items():
                         for values in event_data_value:
+                            # Initialize variables for each data pair
+                            data_name = None
+                            data_value = None
 
-                            # Loop through each subvalue within the EvenData section to extract necessary information
+                            # Loop through each subvalue within the EventData section to extract necessary information
                             for event_data_subkey, event_data_subvalue in values.items():
                                 if event_data_subkey == "@Name":
                                     data_name = event_data_subvalue
                                 else:
                                     data_value = event_data_subvalue
 
-                                    # Add information to the JSON object for this specific log
-                                    json_subline.update({data_name: data_value})
+                            # Add information to the JSON object for this specific log
+                            if data_name is not None and data_value is not None:
+                                json_subline.update({data_name: data_value})
 
-                    # Add specific log JSON object to the final JSON object
-                    if not final_json:
-                        final_json = [json_subline]
-                    else:
-                        final_json.append(json_subline)
-                    json.dump(final_json, f_out)
+                    # Write the JSON object as a single line to the JSONL file
+                    f_out.write(json.dumps(json_subline) + '\n')
         logger.info(f"Successfully parsed to {jsonl_output_path}")
     except Exception as e:
         logger.error(f"Error parsing {evtx_path}: {e}")
@@ -181,7 +182,7 @@ def run_analysis(evtx_path: Path, ticket_number: str):
     # 4. Copy all .json and .jsonl files to the JSONL directory
     dest_dir = JSONL_DIR / ticket_number / file_stem
     dest_dir.mkdir(parents=True, exist_ok=True)
-    
+
     src_dir = RESULTS_DIR / ticket_number / file_stem
     for pattern in ("*.json", "*.jsonl"):
         for src_file in src_dir.glob(pattern):
@@ -203,7 +204,7 @@ async def handle_file_upload(file: UploadFile = File(...), ticket_number: str = 
     if not ticket_number or not ticket_number.strip():
         logger.error("Ticket number is required but was empty")
         return RedirectResponse(url="/?error=ticket_required", status_code=303)
-    
+
     ticket_number = ticket_number.strip()
     logger.info(f"Processing upload for ticket: {ticket_number}")
 
