@@ -11,11 +11,12 @@ from pathlib import Path
 
 import Evtx.Evtx as evtx
 from fastapi import FastAPI, File, UploadFile, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from fastapi import FastAPI, File, UploadFile, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import asyncio
+import queue
+import threading
 
 # --- Configuration ---
 # Using pathlib for cleaner path management
@@ -32,12 +33,25 @@ RESULTS_DIR.mkdir(exist_ok=True)
 LOG_DIR.mkdir(exist_ok=True)
 
 # --- Logging Configuration ---
+# Create a queue for log messages to stream to clients
+log_queue = queue.Queue()
+
+class QueueHandler(logging.Handler):
+    """Custom logging handler that puts log records into a queue for streaming."""
+    def emit(self, record):
+        log_entry = self.format(record)
+        try:
+            log_queue.put_nowait(log_entry)
+        except queue.Full:
+            pass  # Drop log if queue is full
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler(LOG_DIR / "app.log"),
-        logging.StreamHandler() # Also log to console
+        logging.StreamHandler(), # Also log to console
+        QueueHandler() # Add our custom handler for streaming
     ]
 )
 logger = logging.getLogger(__name__)
@@ -185,14 +199,14 @@ def run_analysis(evtx_path: Path, ticket_number: str):
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     src_dir = RESULTS_DIR / ticket_number / file_stem
-    
+
     # Handle .json files - convert to JSONL format
     for src_file in src_dir.glob("*.json"):
         dest_file = dest_dir / f"{src_file.stem}.jsonl"
         try:
             with src_file.open('r', encoding='utf-8') as f:
                 data = json.load(f)
-            
+
             with dest_file.open('w', encoding='utf-8') as f:
                 # If data is a list, write each item as a separate line
                 if isinstance(data, list):
@@ -204,7 +218,7 @@ def run_analysis(evtx_path: Path, ticket_number: str):
                 else:
                     # For other types, wrap in an object and write as one line
                     f.write(json.dumps({"data": data}) + '\n')
-            
+
             logger.info(f"Converted JSON to JSONL: {src_file.name} -> {dest_file.name}")
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON file {src_file}: {e}")
@@ -214,7 +228,7 @@ def run_analysis(evtx_path: Path, ticket_number: str):
             logger.error(f"Error converting {src_file} to JSONL: {e}")
             # Copy the file as-is if conversion fails
             shutil.copy2(src_file, dest_dir / src_file.name)
-    
+
     # Handle .jsonl files - copy as-is
     for src_file in src_dir.glob("*.jsonl"):
         shutil.copy2(src_file, dest_dir / src_file.name)
@@ -227,6 +241,38 @@ def run_analysis(evtx_path: Path, ticket_number: str):
 async def get_upload_form(request: Request):
     """Serves the main upload page."""
     return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/logs/stream")
+async def stream_logs():
+    """Stream log messages in real-time using Server-Sent Events."""
+    # Log that someone connected to the stream
+    logger.info("Client connected to log stream")
+
+    async def log_generator():
+        # Send initial connection message
+        yield f"data: Connected to log stream...\n\n"
+
+        while True:
+            try:
+                # Try to get a log message from the queue (non-blocking)
+                log_message = log_queue.get_nowait()
+                yield f"data: {log_message}\n\n"
+            except queue.Empty:
+                # If no log message, send a heartbeat to keep connection alive
+                yield f"data: \n\n"
+                await asyncio.sleep(0.1)  # Wait 100ms before checking again
+
+    return StreamingResponse(
+        log_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Content-Type": "text/event-stream",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control"
+        }
+    )
 
 @app.post("/evtx")
 async def handle_file_upload(file: UploadFile = File(...), ticket_number: str = Form(...)):
@@ -248,13 +294,11 @@ async def handle_file_upload(file: UploadFile = File(...), ticket_number: str = 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
 
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="No filename provided")
-
     upload_path = session_dir / file.filename
 
     try:
         # Save the uploaded file
+        logger.info(f"Saving uploaded file: {file.filename}")
         with upload_path.open("wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
@@ -272,64 +316,18 @@ async def handle_file_upload(file: UploadFile = File(...), ticket_number: str = 
             # For simplicity, we just redirect. A real app might show an error.
             logger.warning("No .evtx files found in the upload.")
         else:
+            logger.info(f"Found {len(evtx_files)} EVTX file(s) to process")
             for evtx_file in evtx_files:
                 run_analysis(evtx_file, ticket_number)
 
     finally:
         # Clean up the temporary upload session directory
+        logger.info("Cleaning up temporary files")
         shutil.rmtree(session_dir)
 
+    logger.info("Analysis complete - redirecting to results page")
     # Redirect user to the results page
     return RedirectResponse(url="/evtx-results", status_code=303)
-
-'''
-@app.get("/evtx-results", response_class=HTMLResponse)
-async def show_results(request: Request):
-    """Scans the output directories and displays links to the results."""
-    results_by_source = {}
-
-    # Scan the results directory to find all generated reports
-    all_files = list(RESULTS_DIR.rglob("*"))
-
-    # Use the JSONL files as the source of truth for what was processed
-    # // for jsonl_file in sorted(RESULTS_DIR.glob("*.jsonl")):
-    for jsonl_file in sorted(JSONL_DIR.glob("*.jsonl")):
-        source_stem = jsonl_file.stem
-
-        results_by_source[source_stem] = {
-            "chainsaw": None,
-            "hayabusa_html": None, # Explicitly for HTML report
-            "hayabusa_jsonl": None, # Explicitly for JSONL report
-            "jsonl": str(jsonl_file) # Store the server path for display
-        }
-
-        # Find corresponding Chainsaw report
-        chainsaw_report = RESULTS_DIR / f"{source_stem}_chainsaw_report.json"
-        if chainsaw_report.exists():
-            results_by_source[source_stem]["chainsaw"] = f"/static_results/{chainsaw_report.name}"
-
-        # Find corresponding Hayabusa report (the main HTML file)
-        # Now explicitly store HTML and JSONL separately
-        hayabusa_dir = RESULTS_DIR / f"{source_stem}_hayabusa_report" # This is the HTML output directory
-
-        if hayabusa_dir.is_dir():
-            # Hayabusa reports can have different names, find the first .html
-            try:
-                html_report = next(hayabusa_dir.glob("*.html"))
-                # The link needs to be relative to the static mount point
-                results_by_source[source_stem]["hayabusa_html"] = f"/static_results/{html_report.relative_to(RESULTS_DIR)}"
-            except StopIteration:
-                logger.error(f"No HTML report found in {hayabusa_dir}")
-
-        # Find corresponding Hayabusa JSONL report
-        hayabusa_jsonl = RESULTS_DIR / f"{source_stem}_hayabusa_report.jsonl"
-        if hayabusa_jsonl.exists():
-            results_by_source[source_stem]["hayabusa_jsonl"] = f"/static_results/{hayabusa_jsonl.name}"
-    return templates.TemplateResponse("results.html", {
-        "request": request,
-        "results": results_by_source
-    })
-'''
 
 @app.get("/evtx-results", response_class=HTMLResponse)
 async def show_results(request: Request):
