@@ -48,9 +48,10 @@
                         <li><strong>Hayabusa JSONL:</strong> Report not found.</li>
                     {% endif %}
                     {% if reports.jsonl %}
-                        <li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file is stored on the server at <code>{{ reports.jsonl }}</code></li>
+                        <!--<li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file is stored on the server at <code>{{ reports.jsonl }}</code></li>-->
+                        <li><strong>Raw EVTX Log:</strong> <a href="{{ reports.jsonl }}" target="_blank">View JSONL Report</a></li>
                     {% else %}
-                        <li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file not found.</li>
+                        <li><strong>Raw EVTX Log:</strong> Parsed <code>.jsonl</code> file not found.</li>
                     {% endif %}
                 </ul>
             </div>

@@ -26,7 +26,7 @@ LOG_DIR = Path("/logs") # Use absolute path for logs
 # Create directories if they don't exist
 UPLOAD_DIR.mkdir(exist_ok=True)
 RESULTS_DIR.mkdir(exist_ok=True)
-JSONL_DIR.mkdir(exist_ok=True)
+# // JSONL_DIR.mkdir(exist_ok=True)
 LOG_DIR.mkdir(exist_ok=True)
 
 # --- Logging Configuration ---
@@ -109,7 +109,9 @@ def run_analysis(evtx_path: Path):
     logger.info(f"--- Starting analysis for {evtx_path.name} ---")
 
     # 1. Run Chainsaw
-    chainsaw_output_file = RESULTS_DIR / f"{file_stem}_chainsaw_report.json"
+    chainsaw_output_dir = RESULTS_DIR / f"{file_stem}"
+    chainsaw_output_dir.mkdir(exist_ok=True)
+    chainsaw_output_file = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_chainsaw_report.json"
     logger.info(f"Running Chainsaw on {evtx_path.name}...")
     try:
         # Command: chainsaw hunt /path/to/file.evtx --json -o /path/to/output.json
@@ -126,9 +128,9 @@ def run_analysis(evtx_path: Path):
 
     # 2. Run Hayabusa
     # Specify output path for the JSONL report
-    hayabusa_jsonl_output = RESULTS_DIR / f"{file_stem}_hayabusa_report.jsonl"
+    hayabusa_jsonl_output = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_hayabusa_report.jsonl"
     # Specify output directory for the HTML report
-    hayabusa_html_output_dir = RESULTS_DIR / f"{file_stem}_hayabusa_report"
+    hayabusa_html_output_dir = RESULTS_DIR / f"{file_stem}"
     hayabusa_html_output_dir.mkdir(exist_ok=True) # Ensure directory exists
     hayabusa_html_output_file = hayabusa_html_output_dir / "index.html"
 
@@ -149,16 +151,16 @@ def run_analysis(evtx_path: Path):
             logger.info(f"Hayabusa stdout: {result.stdout}")
         if result.stderr:
             logger.warning(f"Hayabusa stderr: {result.stderr}")
-        
+
         logger.info(f"Hayabusa JSONL report at: {hayabusa_jsonl_output}")
         logger.info(f"Hayabusa HTML report directory: {hayabusa_html_output_dir}")
-        
+
         # Check if the expected output files were actually created
         if not hayabusa_jsonl_output.exists():
             logger.error(f"Expected JSONL output file not created: {hayabusa_jsonl_output}")
         if not hayabusa_html_output_file.exists():
             logger.error(f"Expected HTML output file not created: {hayabusa_html_output_file}")
-            
+
     except subprocess.CalledProcessError as e:
         logger.error(f"Hayabusa failed for {evtx_path.name}")
         logger.error(f"Return code: {e.returncode}")
@@ -171,10 +173,20 @@ def run_analysis(evtx_path: Path):
         logger.error("Error: 'hayabusa' command not found. Is it in the system's PATH?")
 
     # 3. Parse EVTX to JSONL
-    jsonl_output_file = JSONL_DIR / f"{file_stem}.jsonl"
+    # // jsonl_output_file = JSONL_DIR / f"{file_stem}.jsonl"
+    jsonl_output_file = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_dump.jsonl"
     parse_evtx_to_jsonl(evtx_path, jsonl_output_file)
 
-    print(f"--- Finished analysis for {evtx_path.name} ---")
+    # 4. Copy all .json and .jsonl files to the JSONL directory
+    dest_dir = JSONL_DIR / f"{file_stem}"
+    dest_dir.mkdir(exist_ok=True)
+    
+    src_dir = RESULTS_DIR / f"{file_stem}"
+    for pattern in ("*.json", "*.jsonl"):
+        for src_file in src_dir.glob(pattern):
+            shutil.copy2(src_file, dest_dir / src_file.name)
+
+    logger.info(f"--- Finished analysis for {evtx_path.name} ---")
 
 # --- API Endpoints ---
 @app.get("/", response_class=HTMLResponse)
@@ -222,7 +234,7 @@ async def handle_file_upload(file: UploadFile = File(...)):
     # Redirect user to the results page
     return RedirectResponse(url="/evtx-results", status_code=303)
 
-
+'''
 @app.get("/evtx-results", response_class=HTMLResponse)
 async def show_results(request: Request):
     """Scans the output directories and displays links to the results."""
@@ -232,6 +244,7 @@ async def show_results(request: Request):
     all_files = list(RESULTS_DIR.rglob("*"))
 
     # Use the JSONL files as the source of truth for what was processed
+    # // for jsonl_file in sorted(RESULTS_DIR.glob("*.jsonl")):
     for jsonl_file in sorted(JSONL_DIR.glob("*.jsonl")):
         source_stem = jsonl_file.stem
 
@@ -268,3 +281,31 @@ async def show_results(request: Request):
         "request": request,
         "results": results_by_source
     })
+'''
+
+@app.get("/evtx-results", response_class=HTMLResponse)
+async def show_results(request: Request):
+    results_by_source = {}
+
+    # each <file_stem> folder lives directly under RESULTS_DIR
+    for source_dir in sorted(RESULTS_DIR.iterdir()):
+        if not source_dir.is_dir():
+            continue
+
+        stem = source_dir.name
+        jsonl      = source_dir / f"{stem}_dump.jsonl"
+        chainsaw   = source_dir / f"{stem}_chainsaw_report.json"
+        hay_jsonl  = source_dir / f"{stem}_hayabusa_report.jsonl"
+        html_index = source_dir / "index.html"
+
+        results_by_source[stem] = {
+            "jsonl":             f"/static_results/{stem}/{jsonl.name}"      if jsonl.exists()      else None,
+            "chainsaw":          f"/static_results/{stem}/{chainsaw.name}"   if chainsaw.exists()   else None,
+            "hayabusa_jsonl":    f"/static_results/{stem}/{hay_jsonl.name}"  if hay_jsonl.exists()  else None,
+            "hayabusa_html":     f"/static_results/{stem}/{html_index.name}" if html_index.exists() else None,
+        }
+
+    return templates.TemplateResponse(
+        "results.html",
+        {"request": request, "results": results_by_source}
+    )
