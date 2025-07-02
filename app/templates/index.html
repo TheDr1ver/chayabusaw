@@ -20,8 +20,23 @@
     <div class="container">
         <h1>Upload EVTX Files for Analysis</h1>
         <p>Select a single <code>.evtx</code> file or a <code>.zip</code> archive containing multiple .evtx files.</p>
+        
+        <!-- Error message display -->
+        <script>
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('error') === 'ticket_required') {
+                const errorDiv = document.createElement('div');
+                errorDiv.style.cssText = 'background-color: #f8d7da; color: #721c24; padding: 10px; border: 1px solid #f5c6cb; border-radius: 4px; margin-bottom: 20px;';
+                errorDiv.innerHTML = '<strong>Error:</strong> Ticket number is required and cannot be empty.';
+                document.querySelector('.container').insertBefore(errorDiv, document.querySelector('form'));
+            }
+        </script>
         <form id="upload-form" action="/evtx" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" accept=".evtx,.zip" required>
+            <label for="ticket_number" style="display: block; margin-bottom: 5px; font-weight: bold;">Ticket Number:</label>
+            <input type="text" id="ticket_number" name="ticket_number" required style="border: 1px solid #ddd; padding: 10px; border-radius: 4px; width: 100%; box-sizing: border-box; margin-bottom: 15px;">
+            
+            <label for="file" style="display: block; margin-bottom: 5px; font-weight: bold;">EVTX File:</label>
+            <input type="file" id="file" name="file" accept=".evtx,.zip" required>
             <br>
             <button type="submit">Analyze File(s)</button>
         </form>
@@ -37,7 +52,13 @@
         </div>
     </div>
     <script>
-        document.getElementById('upload-form').addEventListener('submit', function() {
+        document.getElementById('upload-form').addEventListener('submit', function(e) {
+            const ticketNumber = document.getElementById('ticket_number').value.trim();
+            if (!ticketNumber) {
+                e.preventDefault();
+                alert('Please enter a ticket number before submitting.');
+                return false;
+            }
             document.getElementById('processing-message').style.display = 'block';
         });
     </script>

@@ -12,6 +12,8 @@ from pathlib import Path
 import Evtx.Evtx as evtx
 from fastapi import FastAPI, File, UploadFile, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, File, UploadFile, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -102,16 +104,16 @@ def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
     except Exception as e:
         logger.error(f"Error parsing {evtx_path}: {e}")
 
-def run_analysis(evtx_path: Path):
+def run_analysis(evtx_path: Path, ticket_number: str):
     """Runs Chainsaw, Hayabusa, and EVTX-to-JSONL parsing on a single file."""
 
     file_stem = evtx_path.stem  # e.g., "Security" from "Security.evtx"
-    logger.info(f"--- Starting analysis for {evtx_path.name} ---")
+    logger.info(f"--- Starting analysis for {evtx_path.name} (Ticket: {ticket_number}) ---")
 
     # 1. Run Chainsaw
-    chainsaw_output_dir = RESULTS_DIR / f"{file_stem}"
-    chainsaw_output_dir.mkdir(exist_ok=True)
-    chainsaw_output_file = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_chainsaw_report.json"
+    chainsaw_output_dir = RESULTS_DIR / ticket_number / file_stem
+    chainsaw_output_dir.mkdir(parents=True, exist_ok=True)
+    chainsaw_output_file = chainsaw_output_dir / f"{file_stem}_chainsaw_report.json"
     logger.info(f"Running Chainsaw on {evtx_path.name}...")
     try:
         # Command: chainsaw hunt /path/to/file.evtx --json -o /path/to/output.json
@@ -128,10 +130,10 @@ def run_analysis(evtx_path: Path):
 
     # 2. Run Hayabusa
     # Specify output path for the JSONL report
-    hayabusa_jsonl_output = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_hayabusa_report.jsonl"
+    hayabusa_jsonl_output = RESULTS_DIR / ticket_number / file_stem / f"{file_stem}_hayabusa_report.jsonl"
     # Specify output directory for the HTML report
-    hayabusa_html_output_dir = RESULTS_DIR / f"{file_stem}"
-    hayabusa_html_output_dir.mkdir(exist_ok=True) # Ensure directory exists
+    hayabusa_html_output_dir = RESULTS_DIR / ticket_number / file_stem
+    hayabusa_html_output_dir.mkdir(parents=True, exist_ok=True) # Ensure directory exists
     hayabusa_html_output_file = hayabusa_html_output_dir / "index.html"
 
     logger.info(f"Running Hayabusa on {evtx_path.name}...")
@@ -173,20 +175,19 @@ def run_analysis(evtx_path: Path):
         logger.error("Error: 'hayabusa' command not found. Is it in the system's PATH?")
 
     # 3. Parse EVTX to JSONL
-    # // jsonl_output_file = JSONL_DIR / f"{file_stem}.jsonl"
-    jsonl_output_file = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_dump.jsonl"
+    jsonl_output_file = RESULTS_DIR / ticket_number / file_stem / f"{file_stem}_dump.jsonl"
     parse_evtx_to_jsonl(evtx_path, jsonl_output_file)
 
     # 4. Copy all .json and .jsonl files to the JSONL directory
-    dest_dir = JSONL_DIR / f"{file_stem}"
-    dest_dir.mkdir(exist_ok=True)
-
-    src_dir = RESULTS_DIR / f"{file_stem}"
+    dest_dir = JSONL_DIR / ticket_number / file_stem
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    
+    src_dir = RESULTS_DIR / ticket_number / file_stem
     for pattern in ("*.json", "*.jsonl"):
         for src_file in src_dir.glob(pattern):
             shutil.copy2(src_file, dest_dir / src_file.name)
 
-    logger.info(f"--- Finished analysis for {evtx_path.name} ---")
+    logger.info(f"--- Finished analysis for {evtx_path.name} (Ticket: {ticket_number}) ---")
 
 # --- API Endpoints ---
 @app.get("/", response_class=HTMLResponse)
@@ -195,13 +196,24 @@ async def get_upload_form(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/evtx")
-async def handle_file_upload(file: UploadFile = File(...)):
+async def handle_file_upload(file: UploadFile = File(...), ticket_number: str = Form(...)):
     """Handles file upload, extraction, and triggers analysis."""
+
+    # Validate ticket number (basic validation)
+    if not ticket_number or not ticket_number.strip():
+        logger.error("Ticket number is required but was empty")
+        return RedirectResponse(url="/?error=ticket_required", status_code=303)
+    
+    ticket_number = ticket_number.strip()
+    logger.info(f"Processing upload for ticket: {ticket_number}")
 
     # Create a unique temporary directory for this upload session
     session_id = str(uuid.uuid4())
     session_dir:Path = UPLOAD_DIR / session_id
     session_dir.mkdir()
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
@@ -228,7 +240,7 @@ async def handle_file_upload(file: UploadFile = File(...)):
             logger.warning("No .evtx files found in the upload.")
         else:
             for evtx_file in evtx_files:
-                run_analysis(evtx_file)
+                run_analysis(evtx_file, ticket_number)
 
     finally:
         # Clean up the temporary upload session directory
@@ -288,43 +300,51 @@ async def show_results(request: Request):
 
 @app.get("/evtx-results", response_class=HTMLResponse)
 async def show_results(request: Request):
-    results_by_source = {}
+    results_by_ticket = {}
 
-    # each <file_stem> folder lives directly under RESULTS_DIR
-    for source_dir in sorted(RESULTS_DIR.iterdir()):
-        if not source_dir.is_dir():
+    # Now we have structure: RESULTS_DIR / {ticket_number} / {file_stem}
+    for ticket_dir in sorted(RESULTS_DIR.iterdir()):
+        if not ticket_dir.is_dir():
             continue
 
-        stem = source_dir.name
-        jsonl      = source_dir / f"{stem}_dump.jsonl"
-        chainsaw   = source_dir / f"{stem}_chainsaw_report.json"
-        hay_jsonl  = source_dir / f"{stem}_hayabusa_report.jsonl"
-        html_index = source_dir / "index.html"
+        ticket_number = ticket_dir.name
+        results_by_ticket[ticket_number] = {}
 
-        results_by_source[stem] = {
-            "jsonl":             f"/static_results/{stem}/{jsonl.name}"      if jsonl.exists()      else None,
-            "chainsaw":          f"/static_results/{stem}/{chainsaw.name}"   if chainsaw.exists()   else None,
-            "hayabusa_jsonl":    f"/static_results/{stem}/{hay_jsonl.name}"  if hay_jsonl.exists()  else None,
-            "hayabusa_html":     f"/static_results/{stem}/{html_index.name}" if html_index.exists() else None,
-        }
+        # Each ticket can have multiple file stems
+        for source_dir in sorted(ticket_dir.iterdir()):
+            if not source_dir.is_dir():
+                continue
+
+            stem = source_dir.name
+            jsonl      = source_dir / f"{stem}_dump.jsonl"
+            chainsaw   = source_dir / f"{stem}_chainsaw_report.json"
+            hay_jsonl  = source_dir / f"{stem}_hayabusa_report.jsonl"
+            html_index = source_dir / "index.html"
+
+            results_by_ticket[ticket_number][stem] = {
+                "jsonl":             f"/static_results/{ticket_number}/{stem}/{jsonl.name}"      if jsonl.exists()      else None,
+                "chainsaw":          f"/static_results/{ticket_number}/{stem}/{chainsaw.name}"   if chainsaw.exists()   else None,
+                "hayabusa_jsonl":    f"/static_results/{ticket_number}/{stem}/{hay_jsonl.name}"  if hay_jsonl.exists()  else None,
+                "hayabusa_html":     f"/static_results/{ticket_number}/{stem}/{html_index.name}" if html_index.exists() else None,
+            }
 
     return templates.TemplateResponse(
         "results.html",
-        {"request": request, "results": results_by_source}
+        {"request": request, "results": results_by_ticket}
     )
 
-@app.delete("/delete-results/{file_stem}")
-async def delete_results(file_stem: str):
-    """Deletes the results directory and all associated files for a specific file stem."""
+@app.delete("/delete-results/{ticket_number}/{file_stem}")
+async def delete_results(ticket_number: str, file_stem: str):
+    """Deletes the results directory and all associated files for a specific file stem within a ticket."""
 
     try:
-        # Construct the path to the results directory for this file stem
-        results_dir_path = RESULTS_DIR / file_stem
+        # Construct the path to the results directory for this ticket and file stem
+        results_dir_path = RESULTS_DIR / ticket_number / file_stem
 
         # Check if the directory exists
         if not results_dir_path.exists():
             logger.warning(f"Results directory not found: {results_dir_path}")
-            raise HTTPException(status_code=404, detail=f"Results directory for '{file_stem}' not found")
+            raise HTTPException(status_code=404, detail=f"Results directory for '{file_stem}' in ticket '{ticket_number}' not found")
 
         if not results_dir_path.is_dir():
             logger.warning(f"Path exists but is not a directory: {results_dir_path}")
@@ -335,20 +355,71 @@ async def delete_results(file_stem: str):
         logger.info(f"Successfully deleted results directory: {results_dir_path}")
 
         # Also clean up the corresponding JSONL directory if it exists
-        jsonl_dir_path = JSONL_DIR / file_stem
+        jsonl_dir_path = JSONL_DIR / ticket_number / file_stem
         if jsonl_dir_path.exists() and jsonl_dir_path.is_dir():
             shutil.rmtree(jsonl_dir_path)
             logger.info(f"Successfully deleted JSONL directory: {jsonl_dir_path}")
 
+        # Check if the ticket directory is now empty and remove it if so
+        ticket_results_dir = RESULTS_DIR / ticket_number
+        if ticket_results_dir.exists() and ticket_results_dir.is_dir() and not any(ticket_results_dir.iterdir()):
+            ticket_results_dir.rmdir()
+            logger.info(f"Removed empty ticket directory: {ticket_results_dir}")
+
+        ticket_jsonl_dir = JSONL_DIR / ticket_number
+        if ticket_jsonl_dir.exists() and ticket_jsonl_dir.is_dir() and not any(ticket_jsonl_dir.iterdir()):
+            ticket_jsonl_dir.rmdir()
+            logger.info(f"Removed empty ticket JSONL directory: {ticket_jsonl_dir}")
+
         return JSONResponse(
             status_code=200,
-            content={"message": f"Successfully deleted results for '{file_stem}'"}
+            content={"message": f"Successfully deleted results for '{file_stem}' in ticket '{ticket_number}'"}
         )
 
     except PermissionError as e:
-        logger.error(f"Permission denied when deleting {file_stem}: {e}")
+        logger.error(f"Permission denied when deleting {ticket_number}/{file_stem}: {e}")
         raise HTTPException(status_code=403, detail="Permission denied: Unable to delete results directory")
 
     except Exception as e:
-        logger.error(f"Error deleting results for {file_stem}: {e}")
+        logger.error(f"Error deleting results for {ticket_number}/{file_stem}: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.delete("/delete-ticket/{ticket_number}")
+async def delete_ticket(ticket_number: str):
+    """Deletes all results for an entire ticket."""
+
+    try:
+        # Construct the path to the ticket directory
+        ticket_results_dir = RESULTS_DIR / ticket_number
+        ticket_jsonl_dir = JSONL_DIR / ticket_number
+
+        deleted_something = False
+
+        # Delete the results directory if it exists
+        if ticket_results_dir.exists() and ticket_results_dir.is_dir():
+            shutil.rmtree(ticket_results_dir)
+            logger.info(f"Successfully deleted ticket results directory: {ticket_results_dir}")
+            deleted_something = True
+
+        # Delete the JSONL directory if it exists
+        if ticket_jsonl_dir.exists() and ticket_jsonl_dir.is_dir():
+            shutil.rmtree(ticket_jsonl_dir)
+            logger.info(f"Successfully deleted ticket JSONL directory: {ticket_jsonl_dir}")
+            deleted_something = True
+
+        if not deleted_something:
+            logger.warning(f"No directories found for ticket: {ticket_number}")
+            raise HTTPException(status_code=404, detail=f"No results found for ticket '{ticket_number}'")
+
+        return JSONResponse(
+            status_code=200,
+            content={"message": f"Successfully deleted all results for ticket '{ticket_number}'"}
+        )
+
+    except PermissionError as e:
+        logger.error(f"Permission denied when deleting ticket {ticket_number}: {e}")
+        raise HTTPException(status_code=403, detail="Permission denied: Unable to delete ticket directory")
+
+    except Exception as e:
+        logger.error(f"Error deleting ticket {ticket_number}: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

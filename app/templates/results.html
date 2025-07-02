@@ -10,15 +10,18 @@
         h1, h2 { color: #0056b3; }
         .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         .result-group { border-left: 3px solid #007bff; padding-left: 15px; margin-bottom: 30px; position: relative; }
-        .result-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .ticket-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .file-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         ul { list-style-type: none; padding-left: 0; }
         li { margin-bottom: 10px; }
         a { color: #007bff; text-decoration: none; }
         a:hover { text-decoration: underline; }
         .back-link { display: inline-block; margin-top: 30px; background-color: #6c757d; color: white; padding: 10px 15px; border-radius: 4px; }
         .back-link:hover { background-color: #5a6268; text-decoration: none; }
-        .delete-btn { background-color: #dc3545; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .delete-btn { background-color: #dc3545; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-left: 10px; }
         .delete-btn:hover { background-color: #c82333; }
+        .delete-ticket-btn { background-color: #dc3545; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        .delete-ticket-btn:hover { background-color: #c82333; }
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
         .modal-content { background-color: #fff; margin: 15% auto; padding: 20px; border-radius: 8px; width: 400px; text-align: center; }
         .modal-buttons { margin-top: 20px; }
@@ -37,37 +40,46 @@
             <p>No results found. The analysis may have failed or no reports were generated.</p>
         {% endif %}
 
-        {% for source_name, reports in results.items() %}
-            <div class="result-group">
-                <div class="result-header">
-                    <h2>{{ source_name }}.evtx</h2>
-                    <button class="delete-btn" onclick="confirmDelete('{{ source_name }}')">Delete Results</button>
+        {% for ticket_number, ticket_results in results.items() %}
+            <div class="result-group" style="border-left: 4px solid #28a745; margin-bottom: 40px;">
+                <div class="ticket-header">
+                    <h2 style="color: #28a745; margin: 0;">Ticket: {{ ticket_number }}</h2>
+                    <button class="delete-ticket-btn" onclick="confirmDeleteTicket('{{ ticket_number }}')">Delete Entire Ticket</button>
                 </div>
-                <ul>
-                    {% if reports.chainsaw %}
-                        <li><strong>Chainsaw:</strong> <a href="{{ reports.chainsaw }}" target="_blank">View JSON Report</a></li>
-                    {% else %}
-                        <li><strong>Chainsaw:</strong> Report not found.</li>
-                    {% endif %}
 
-                    {% if reports.hayabusa_html %}
-                        <li><strong>Hayabusa:</strong> <a href="{{ reports.hayabusa_html }}" target="_blank">View HTML Report</a></li>
-                    {% else %}
-                        <li><strong>Hayabusa:</strong> Report not found.</li>
-                    {% endif %}
+                {% for source_name, reports in ticket_results.items() %}
+                    <div style="margin-left: 20px; margin-bottom: 25px; border-left: 2px solid #007bff; padding-left: 15px;">
+                        <div class="file-header">
+                            <h3 style="color: #007bff; margin: 0;">{{ source_name }}.evtx</h3>
+                            <button class="delete-btn" onclick="confirmDeleteFile('{{ ticket_number }}', '{{ source_name }}')">Delete File Results</button>
+                        </div>
+                        <ul>
+                            {% if reports.chainsaw %}
+                                <li><strong>Chainsaw:</strong> <a href="{{ reports.chainsaw }}" target="_blank">View JSON Report</a></li>
+                            {% else %}
+                                <li><strong>Chainsaw:</strong> Report not found.</li>
+                            {% endif %}
 
-                    {% if reports.hayabusa_jsonl %}
-                        <li><strong>Hayabusa JSONL:</strong> <a href="{{ reports.hayabusa_jsonl }}" target="_blank">View JSONL Report</a></li>
-                    {% else %}
-                        <li><strong>Hayabusa JSONL:</strong> Report not found.</li>
-                    {% endif %}
-                    {% if reports.jsonl %}
-                        <!--<li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file is stored on the server at <code>{{ reports.jsonl }}</code></li>-->
-                        <li><strong>Raw EVTX Log:</strong> <a href="{{ reports.jsonl }}" target="_blank">View JSONL Report</a></li>
-                    {% else %}
-                        <li><strong>Raw EVTX Log:</strong> Parsed <code>.jsonl</code> file not found.</li>
-                    {% endif %}
-                </ul>
+                            {% if reports.hayabusa_html %}
+                                <li><strong>Hayabusa:</strong> <a href="{{ reports.hayabusa_html }}" target="_blank">View HTML Report</a></li>
+                            {% else %}
+                                <li><strong>Hayabusa:</strong> Report not found.</li>
+                            {% endif %}
+
+                            {% if reports.hayabusa_jsonl %}
+                                <li><strong>Hayabusa JSONL:</strong> <a href="{{ reports.hayabusa_jsonl }}" target="_blank">View JSONL Report</a></li>
+                            {% else %}
+                                <li><strong>Hayabusa JSONL:</strong> Report not found.</li>
+                            {% endif %}
+                            {% if reports.jsonl %}
+                                <!--<li><strong>Raw Log:</strong> Parsed <code>.jsonl</code> file is stored on the server at <code>{{ reports.jsonl }}</code></li>-->
+                                <li><strong>Raw EVTX Log:</strong> <a href="{{ reports.jsonl }}" target="_blank">View JSONL Report</a></li>
+                            {% else %}
+                                <li><strong>Raw EVTX Log:</strong> Parsed <code>.jsonl</code> file not found.</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                {% endfor %}
             </div>
         {% endfor %}
 
@@ -78,33 +90,55 @@
     <div id="deleteModal" class="modal">
         <div class="modal-content">
             <h3>Confirm Deletion</h3>
-            <p>Are you sure you want to delete all results for <strong id="deleteFileName"></strong>?</p>
+            <p id="deleteMessage"></p>
             <p>This action cannot be undone.</p>
             <div class="modal-buttons">
-                <button class="modal-btn confirm-btn" onclick="deleteResults()">Delete</button>
+                <button class="modal-btn confirm-btn" onclick="executeDelete()">Delete</button>
                 <button class="modal-btn cancel-btn" onclick="closeModal()">Cancel</button>
             </div>
         </div>
     </div>
 
     <script>
-        let currentDeleteTarget = '';
+        let currentDeleteAction = null;
 
-        function confirmDelete(sourceName) {
-            currentDeleteTarget = sourceName;
-            document.getElementById('deleteFileName').textContent = sourceName + '.evtx';
+        function confirmDeleteFile(ticketNumber, fileName) {
+            currentDeleteAction = {
+                type: 'file',
+                ticketNumber: ticketNumber,
+                fileName: fileName
+            };
+            document.getElementById('deleteMessage').innerHTML =
+                `Are you sure you want to delete all results for <strong>${fileName}.evtx</strong> in ticket <strong>${ticketNumber}</strong>?`;
+            document.getElementById('deleteModal').style.display = 'block';
+        }
+
+        function confirmDeleteTicket(ticketNumber) {
+            currentDeleteAction = {
+                type: 'ticket',
+                ticketNumber: ticketNumber
+            };
+            document.getElementById('deleteMessage').innerHTML =
+                `Are you sure you want to delete <strong>ALL</strong> results for ticket <strong>${ticketNumber}</strong>?`;
             document.getElementById('deleteModal').style.display = 'block';
         }
 
         function closeModal() {
             document.getElementById('deleteModal').style.display = 'none';
-            currentDeleteTarget = '';
+            currentDeleteAction = null;
         }
 
-        function deleteResults() {
-            if (!currentDeleteTarget) return;
-            
-            fetch(`/delete-results/${currentDeleteTarget}`, {
+        function executeDelete() {
+            if (!currentDeleteAction) return;
+
+            let url;
+            if (currentDeleteAction.type === 'file') {
+                url = `/delete-results/${currentDeleteAction.ticketNumber}/${currentDeleteAction.fileName}`;
+            } else if (currentDeleteAction.type === 'ticket') {
+                url = `/delete-ticket/${currentDeleteAction.ticketNumber}`;
+            }
+
+            fetch(url, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',
@@ -122,7 +156,7 @@
                 console.error('Error:', error);
                 alert('An error occurred while deleting results.');
             });
-            
+
             closeModal();
         }
 
