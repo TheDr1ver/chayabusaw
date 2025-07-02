@@ -180,13 +180,45 @@ def run_analysis(evtx_path: Path, ticket_number: str):
     parse_evtx_to_jsonl(evtx_path, jsonl_output_file)
 
     # 4. Copy all .json and .jsonl files to the JSONL directory
+    # Convert .json files to .jsonl format for Splunk ingestion
     dest_dir = JSONL_DIR / ticket_number / file_stem
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     src_dir = RESULTS_DIR / ticket_number / file_stem
-    for pattern in ("*.json", "*.jsonl"):
-        for src_file in src_dir.glob(pattern):
+    
+    # Handle .json files - convert to JSONL format
+    for src_file in src_dir.glob("*.json"):
+        dest_file = dest_dir / f"{src_file.stem}.jsonl"
+        try:
+            with src_file.open('r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            with dest_file.open('w', encoding='utf-8') as f:
+                # If data is a list, write each item as a separate line
+                if isinstance(data, list):
+                    for item in data:
+                        f.write(json.dumps(item) + '\n')
+                # If data is a single object, write it as one line
+                elif isinstance(data, dict):
+                    f.write(json.dumps(data) + '\n')
+                else:
+                    # For other types, wrap in an object and write as one line
+                    f.write(json.dumps({"data": data}) + '\n')
+            
+            logger.info(f"Converted JSON to JSONL: {src_file.name} -> {dest_file.name}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON file {src_file}: {e}")
+            # Copy the file as-is if it can't be parsed
             shutil.copy2(src_file, dest_dir / src_file.name)
+        except Exception as e:
+            logger.error(f"Error converting {src_file} to JSONL: {e}")
+            # Copy the file as-is if conversion fails
+            shutil.copy2(src_file, dest_dir / src_file.name)
+    
+    # Handle .jsonl files - copy as-is
+    for src_file in src_dir.glob("*.jsonl"):
+        shutil.copy2(src_file, dest_dir / src_file.name)
+        logger.info(f"Copied JSONL file: {src_file.name}")
 
     logger.info(f"--- Finished analysis for {evtx_path.name} (Ticket: {ticket_number}) ---")
 
