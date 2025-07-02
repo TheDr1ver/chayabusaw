@@ -19,7 +19,7 @@
 <body>
     <div class="container">
         <h1>Upload EVTX Files for Analysis</h1>
-        <p>Select a single <code>.evtx</code> file or a <code>.zip</code> archive containing multiple .evtx files.</p>
+        <p>Select an <code>.evtx</code> file to upload. Ticket number can be any grouping context (e.g. ticket_number_and_computer_name: 12345_WIN10-01, datetime: 20250702T110700, etc.)</p>
         
         <!-- Error message display -->
         <script>
@@ -36,7 +36,7 @@
             <input type="text" id="ticket_number" name="ticket_number" required style="border: 1px solid #ddd; padding: 10px; border-radius: 4px; width: 100%; box-sizing: border-box; margin-bottom: 15px;">
             
             <label for="file" style="display: block; margin-bottom: 5px; font-weight: bold;">EVTX File:</label>
-            <input type="file" id="file" name="file" accept=".evtx,.zip" required>
+            <input type="file" id="file" name="file" accept=".evtx" required>
             <br>
             <button type="submit">Analyze File(s)</button>
         </form>
