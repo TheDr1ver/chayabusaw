@@ -102,16 +102,16 @@ def parse_evtx_to_jsonl(evtx_path: Path, jsonl_output_path: Path):
     except Exception as e:
         logger.error(f"Error parsing {evtx_path}: {e}")
 
-def run_analysis(evtx_path: Path):
+def run_analysis(evtx_path: Path, ticket_number: str):
     """Runs Chainsaw, Hayabusa, and EVTX-to-JSONL parsing on a single file."""
 
     file_stem = evtx_path.stem  # e.g., "Security" from "Security.evtx"
-    logger.info(f"--- Starting analysis for {evtx_path.name} ---")
+    logger.info(f"--- Starting analysis for {evtx_path.name} (Ticket: {ticket_number}) ---")
 
     # 1. Run Chainsaw
-    chainsaw_output_dir = RESULTS_DIR / f"{file_stem}"
-    chainsaw_output_dir.mkdir(exist_ok=True)
-    chainsaw_output_file = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_chainsaw_report.json"
+    chainsaw_output_dir = RESULTS_DIR / ticket_number / file_stem
+    chainsaw_output_dir.mkdir(parents=True, exist_ok=True)
+    chainsaw_output_file = chainsaw_output_dir / f"{file_stem}_chainsaw_report.json"
     logger.info(f"Running Chainsaw on {evtx_path.name}...")
     try:
         # Command: chainsaw hunt /path/to/file.evtx --json -o /path/to/output.json
@@ -128,10 +128,10 @@ def run_analysis(evtx_path: Path):
 
     # 2. Run Hayabusa
     # Specify output path for the JSONL report
-    hayabusa_jsonl_output = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_hayabusa_report.jsonl"
+    hayabusa_jsonl_output = RESULTS_DIR / ticket_number / file_stem / f"{file_stem}_hayabusa_report.jsonl"
     # Specify output directory for the HTML report
-    hayabusa_html_output_dir = RESULTS_DIR / f"{file_stem}"
-    hayabusa_html_output_dir.mkdir(exist_ok=True) # Ensure directory exists
+    hayabusa_html_output_dir = RESULTS_DIR / ticket_number / file_stem
+    hayabusa_html_output_dir.mkdir(parents=True, exist_ok=True) # Ensure directory exists
     hayabusa_html_output_file = hayabusa_html_output_dir / "index.html"
 
     logger.info(f"Running Hayabusa on {evtx_path.name}...")
@@ -173,20 +173,19 @@ def run_analysis(evtx_path: Path):
         logger.error("Error: 'hayabusa' command not found. Is it in the system's PATH?")
 
     # 3. Parse EVTX to JSONL
-    # // jsonl_output_file = JSONL_DIR / f"{file_stem}.jsonl"
-    jsonl_output_file = RESULTS_DIR / f"{file_stem}" / f"{file_stem}_dump.jsonl"
+    jsonl_output_file = RESULTS_DIR / ticket_number / file_stem / f"{file_stem}_dump.jsonl"
     parse_evtx_to_jsonl(evtx_path, jsonl_output_file)
 
     # 4. Copy all .json and .jsonl files to the JSONL directory
-    dest_dir = JSONL_DIR / f"{file_stem}"
-    dest_dir.mkdir(exist_ok=True)
+    dest_dir = JSONL_DIR / ticket_number / file_stem
+    dest_dir.mkdir(parents=True, exist_ok=True)
     
-    src_dir = RESULTS_DIR / f"{file_stem}"
+    src_dir = RESULTS_DIR / ticket_number / file_stem
     for pattern in ("*.json", "*.jsonl"):
         for src_file in src_dir.glob(pattern):
             shutil.copy2(src_file, dest_dir / src_file.name)
 
-    logger.info(f"--- Finished analysis for {evtx_path.name} ---")
+    logger.info(f"--- Finished analysis for {evtx_path.name} (Ticket: {ticket_number}) ---")
 
 # --- API Endpoints ---
 @app.get("/", response_class=HTMLResponse)
@@ -195,15 +194,23 @@ async def get_upload_form(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/evtx")
-async def handle_file_upload(file: UploadFile = File(...)):
+async def handle_file_upload(file: UploadFile = File(...), ticket_number: str = Form(...)):
     """Handles file upload, extraction, and triggers analysis."""
+
+    # Validate ticket number (basic validation)
+    if not ticket_number or not ticket_number.strip():
+        logger.error("Ticket number is required but was empty")
+        return RedirectResponse(url="/?error=ticket_required", status_code=303)
+    
+    ticket_number = ticket_number.strip()
+    logger.info(f"Processing upload for ticket: {ticket_number}")
 
     # Create a unique temporary directory for this upload session
     session_id = str(uuid.uuid4())
     session_dir:Path = UPLOAD_DIR / session_id
     session_dir.mkdir()
 
-    upload_path = session_dir / file.filename
+    upload_path = session_dir / (file.filename or "uploaded_file")
 
     try:
         # Save the uploaded file
@@ -225,7 +232,7 @@ async def handle_file_upload(file: UploadFile = File(...)):
             logger.warning("No .evtx files found in the upload.")
         else:
             for evtx_file in evtx_files:
-                run_analysis(evtx_file)
+                run_analysis(evtx_file, ticket_number)
 
     finally:
         # Clean up the temporary upload session directory
@@ -285,27 +292,35 @@ async def show_results(request: Request):
 
 @app.get("/evtx-results", response_class=HTMLResponse)
 async def show_results(request: Request):
-    results_by_source = {}
+    results_by_ticket = {}
 
-    # each <file_stem> folder lives directly under RESULTS_DIR
-    for source_dir in sorted(RESULTS_DIR.iterdir()):
-        if not source_dir.is_dir():
+    # Now we have structure: RESULTS_DIR / {ticket_number} / {file_stem}
+    for ticket_dir in sorted(RESULTS_DIR.iterdir()):
+        if not ticket_dir.is_dir():
             continue
 
-        stem = source_dir.name
-        jsonl      = source_dir / f"{stem}_dump.jsonl"
-        chainsaw   = source_dir / f"{stem}_chainsaw_report.json"
-        hay_jsonl  = source_dir / f"{stem}_hayabusa_report.jsonl"
-        html_index = source_dir / "index.html"
+        ticket_number = ticket_dir.name
+        results_by_ticket[ticket_number] = {}
 
-        results_by_source[stem] = {
-            "jsonl":             f"/static_results/{stem}/{jsonl.name}"      if jsonl.exists()      else None,
-            "chainsaw":          f"/static_results/{stem}/{chainsaw.name}"   if chainsaw.exists()   else None,
-            "hayabusa_jsonl":    f"/static_results/{stem}/{hay_jsonl.name}"  if hay_jsonl.exists()  else None,
-            "hayabusa_html":     f"/static_results/{stem}/{html_index.name}" if html_index.exists() else None,
-        }
+        # Each ticket can have multiple file stems
+        for source_dir in sorted(ticket_dir.iterdir()):
+            if not source_dir.is_dir():
+                continue
+
+            stem = source_dir.name
+            jsonl      = source_dir / f"{stem}_dump.jsonl"
+            chainsaw   = source_dir / f"{stem}_chainsaw_report.json"
+            hay_jsonl  = source_dir / f"{stem}_hayabusa_report.jsonl"
+            html_index = source_dir / "index.html"
+
+            results_by_ticket[ticket_number][stem] = {
+                "jsonl":             f"/static_results/{ticket_number}/{stem}/{jsonl.name}"      if jsonl.exists()      else None,
+                "chainsaw":          f"/static_results/{ticket_number}/{stem}/{chainsaw.name}"   if chainsaw.exists()   else None,
+                "hayabusa_jsonl":    f"/static_results/{ticket_number}/{stem}/{hay_jsonl.name}"  if hay_jsonl.exists()  else None,
+                "hayabusa_html":     f"/static_results/{ticket_number}/{stem}/{html_index.name}" if html_index.exists() else None,
+            }
 
     return templates.TemplateResponse(
         "results.html",
-        {"request": request, "results": results_by_source}
+        {"request": request, "results": results_by_ticket}
     )
