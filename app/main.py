@@ -12,6 +12,8 @@ from pathlib import Path
 import Evtx.Evtx as evtx
 from fastapi import FastAPI, File, UploadFile, Request, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, File, UploadFile, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -209,6 +211,9 @@ async def handle_file_upload(file: UploadFile = File(...), ticket_number: str = 
     session_id = str(uuid.uuid4())
     session_dir:Path = UPLOAD_DIR / session_id
     session_dir.mkdir()
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided")
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")

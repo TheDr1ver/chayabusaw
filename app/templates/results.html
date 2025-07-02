@@ -46,7 +46,7 @@
                     <h2 style="color: #28a745; margin: 0;">Ticket: {{ ticket_number }}</h2>
                     <button class="delete-ticket-btn" onclick="confirmDeleteTicket('{{ ticket_number }}')">Delete Entire Ticket</button>
                 </div>
-                
+
                 {% for source_name, reports in ticket_results.items() %}
                     <div style="margin-left: 20px; margin-bottom: 25px; border-left: 2px solid #007bff; padding-left: 15px;">
                         <div class="file-header">
@@ -130,14 +130,14 @@
 
         function executeDelete() {
             if (!currentDeleteAction) return;
-            
+
             let url;
             if (currentDeleteAction.type === 'file') {
                 url = `/delete-results/${currentDeleteAction.ticketNumber}/${currentDeleteAction.fileName}`;
             } else if (currentDeleteAction.type === 'ticket') {
                 url = `/delete-ticket/${currentDeleteAction.ticketNumber}`;
             }
-            
+
             fetch(url, {
                 method: 'DELETE',
                 headers: {
@@ -156,7 +156,7 @@
                 console.error('Error:', error);
                 alert('An error occurred while deleting results.');
             });
-            
+
             closeModal();
         }
 
