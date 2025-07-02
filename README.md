@@ -49,7 +49,7 @@ The entire application is deployed using a single `docker-compose.yaml` file, de
 ## How to Use
 
 1.  **Access the Web UI**
-    Open your web browser and navigate to `http://localhost:8000`.
+    Open your web browser and navigate to `http://localhost:3889`.
 
 2.  **Upload Files**
     Use the web form to select a single `.evtx` file or a `.zip` archive containing multiple `.evtx` files.

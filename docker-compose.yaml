@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: chayabusaw-app
     ports:
-      - "8000:8000"
+      - "3889:3889"
     volumes:
       # Persistently store the analysis reports on the host
       - ./analysis_results:/app/results
