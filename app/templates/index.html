@@ -14,13 +14,32 @@
         button { background-color: #007bff; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; margin-top: 15px; }
         button:hover { background-color: #0056b3; }
         #processing-message { display: none; margin-top: 20px; font-weight: bold; color: #d9534f; }
+        #log-container { display: none; margin-top: 20px; }
+        #log-box {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', Consolas, monospace;
+            font-size: 12px;
+            padding: 15px;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #333;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        #log-header {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #0056b3;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Upload EVTX Files for Analysis</h1>
-        <p>Select an <code>.evtx</code> file to upload. Ticket number can be any grouping context (e.g. ticket_number_and_computer_name: 12345_WIN10-01, datetime: 20250702T110700, etc.)</p>
-        
+        <p>Select an <code>.evtx</code> file to upload. Ticket number can be any grouping context (e.g. ticket_number_and_computer_name: <code>12345_WIN10-01</code>, datetime: <code>20250702T110700</code>, etc.)</p>
+
         <!-- Error message display -->
         <script>
             const urlParams = new URLSearchParams(window.location.search);
@@ -34,24 +53,36 @@
         <form id="upload-form" action="/evtx" method="post" enctype="multipart/form-data">
             <label for="ticket_number" style="display: block; margin-bottom: 5px; font-weight: bold;">Ticket Number:</label>
             <input type="text" id="ticket_number" name="ticket_number" required style="border: 1px solid #ddd; padding: 10px; border-radius: 4px; width: 100%; box-sizing: border-box; margin-bottom: 15px;">
-            
+
             <label for="file" style="display: block; margin-bottom: 5px; font-weight: bold;">EVTX File:</label>
             <input type="file" id="file" name="file" accept=".evtx" required>
             <br>
             <button type="submit">Analyze File(s)</button>
         </form>
-        
+
         <div style="margin-top: 30px; text-align: center;">
             <a href="/evtx-results" style="color: #007bff; text-decoration: none; font-weight: bold; padding: 10px 15px; border: 2px solid #007bff; border-radius: 4px; display: inline-block; transition: all 0.3s ease;">
                 View Analysis Results
             </a>
         </div>
-        
+
         <div id="processing-message">
             <p>Processing... This may take several minutes depending on the file size. Please do not close this page.</p>
         </div>
+
+        <div id="log-container">
+            <div id="log-header">Processing Log:</div>
+            <div id="log-box"></div>
+        </div>
     </div>
     <script>
+        let eventSource = null;
+
+        // Start log stream immediately when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            startLogStream();
+        });
+
         document.getElementById('upload-form').addEventListener('submit', function(e) {
             const ticketNumber = document.getElementById('ticket_number').value.trim();
             if (!ticketNumber) {
@@ -59,7 +90,51 @@
                 alert('Please enter a ticket number before submitting.');
                 return false;
             }
+
+            // Show processing message and log container
             document.getElementById('processing-message').style.display = 'block';
+            document.getElementById('log-container').style.display = 'block';
+        });
+
+        function startLogStream() {
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            console.log('Starting log stream...');
+            eventSource = new EventSource('/logs/stream');
+            const logBox = document.getElementById('log-box');
+
+            eventSource.onopen = function(event) {
+                console.log('EventSource connection opened');
+                const timestamp = new Date().toLocaleTimeString();
+                logBox.textContent += `[${timestamp}] Log stream connected - ready to monitor processing...\n`;
+                logBox.scrollTop = logBox.scrollHeight;
+            };
+
+            eventSource.onmessage = function(event) {
+                console.log('Received log message:', event.data);
+                if (event.data.trim()) {
+                    // Add new log message
+                    logBox.textContent += event.data + '\n';
+                    // Auto-scroll to bottom
+                    logBox.scrollTop = logBox.scrollHeight;
+                }
+            };
+
+            eventSource.onerror = function(event) {
+                console.error('EventSource failed:', event);
+                logBox.textContent += 'Connection error - retrying...\n';
+                logBox.scrollTop = logBox.scrollHeight;
+                // Don't close the connection on error, let it retry
+            };
+        }
+
+        // Clean up EventSource when page is unloaded
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
         });
     </script>
 </body>
